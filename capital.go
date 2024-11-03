@@ -9,8 +9,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/soft-serve/pkg/ui/common"
 )
+
+// BuildingsMsg is a message sent when the readme is loaded.
+type CapitalMsg *CapitalModel
 
 // Capital represents a capital in the game.
 type Capital struct {
@@ -31,11 +35,13 @@ func (i CapitalItem) FilterValue() string { return i.Capital.Name }
 
 // CapitalModel is the model for the capital tab.
 type CapitalModel struct {
-	common   common.Common
-	spinner  spinner.Model
-	list     list.Model
-	progress progress.Model
-	capitals []Capital
+	game      *Game
+	common    common.Common
+	spinner   spinner.Model
+	list      list.Model
+	progress  progress.Model
+	capitals  []Capital
+	isLoading bool
 }
 
 // Path implements common.TabComponent.
@@ -50,7 +56,7 @@ func (m *CapitalModel) TabName() string {
 
 // Tick returns a command that ticks the spinner.
 func (m *CapitalModel) Tick() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, m.updateCapitalsCmd)
 }
 
 // SetSize implements common.Component.
@@ -78,24 +84,26 @@ func (m *CapitalModel) FullHelp() [][]key.Binding {
 
 // Init initializes the capital tab.
 func (m *CapitalModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.Tick(),
-	)
+	m.isLoading = true
+	return m.Tick()
 }
 
 // Update updates the capital tab.
 func (m *CapitalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	if m.game != nil && m.game.dump != nil {
+		m.game.dump.Debug("Capital Update", "msg", msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
 		case "enter":
 			selectedItem := m.list.SelectedItem().(CapitalItem)
 			selectedItem.Capital.Value++
 			m.updateCapital(selectedItem.Capital)
 		}
+	case CapitalMsg:
+		m.isLoading = false
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -151,13 +159,15 @@ func NewCapitalModel(c common.Common) *CapitalModel {
 		items[i] = CapitalItem{Capital: c}
 	}
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Capitals"
+	log.Debug("NewCapitalModel", "items", items)
+	l.Title = "Capital"
 	return &CapitalModel{
-		common:   c,
-		spinner:  spinner.New(),
-		list:     l,
-		progress: progress.New(progress.WithDefaultGradient()),
-		capitals: capitals,
+		common:    c,
+		spinner:   spinner.New(),
+		list:      l,
+		progress:  progress.New(progress.WithDefaultGradient()),
+		capitals:  capitals,
+		isLoading: true,
 	}
 }
 
@@ -174,4 +184,14 @@ func (m *CapitalModel) StatusBarValue() string {
 // StatusBarInfo implements statusbar.StatusBar.
 func (m *CapitalModel) StatusBarInfo() string {
 	return fmt.Sprintf("☰ %d%%", m.list.Index())
+}
+
+func (m *CapitalModel) updateCapitalsCmd() tea.Msg {
+	log.Debug("Updating Capitals")
+	if m.capitals == nil {
+		log.Errorf("missing capitals")
+		return common.ErrorMsg(common.ErrMissingRepo)
+	}
+	m.isLoading = false
+	return CapitalMsg(m)
 }

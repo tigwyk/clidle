@@ -11,14 +11,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/soft-serve/pkg/ui/common"
 )
 
-// BuildingsMsg is a message sent when the readme is loaded.
-type BuildingsMsg struct {
-	Content string
-	Path    string
-}
+// BuildingsMsg is sent when the tab is ready
+type BuildingsMsg *BuildingsModel
 
 // Building represents a building in the game.
 type Building struct {
@@ -38,9 +36,9 @@ func (i BuildingItem) Description() string {
 }
 func (i BuildingItem) FilterValue() string { return i.Building.Name }
 
-// BuildingsModel is the model for the buildings tab.
+// BuildingsModel is the Buildings component page
 type BuildingsModel struct {
-	game      gameInfo
+	game      *Game
 	common    common.Common
 	spinner   spinner.Model
 	list      list.Model
@@ -61,7 +59,7 @@ func (m *BuildingsModel) TabName() string {
 
 // Tick returns a command that ticks the spinner.
 func (m *BuildingsModel) Tick() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, m.updateBuildingsCmd)
 }
 
 // SetSize implements common.Component.
@@ -90,24 +88,26 @@ func (b *BuildingsModel) FullHelp() [][]key.Binding {
 // Init initializes the buildings tab.
 func (m *BuildingsModel) Init() tea.Cmd {
 	m.isLoading = true
-	return tea.Batch(m.spinner.Tick, m.updateBuildingsCmd)
+	log.Debug("Buildings Init", "BuildingsModel", m)
+	return m.Tick()
 }
 
 // Update updates the buildings tab.
 func (m *BuildingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	if m.game != nil && m.game.dump != nil {
+		m.game.dump.Debug("Buildings Update", "msg", msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
 		case "enter":
 			selectedItem := m.list.SelectedItem().(BuildingItem)
 			selectedItem.Building.Level++
 			m.updateBuilding(selectedItem.Building)
 		}
 	case GameMsg:
-		m.game = msg.Game
+		m.game = msg
 	case BuildingsMsg:
 		m.isLoading = false
 	case spinner.TickMsg:
@@ -174,6 +174,7 @@ func NewBuildingsModel(c common.Common) *BuildingsModel {
 	}
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Buildings"
+	log.Debug("NewBuildingsModel", "items", items)
 	return &BuildingsModel{
 		common:    c,
 		spinner:   spinner.New(),
@@ -200,13 +201,11 @@ func (m *BuildingsModel) StatusBarInfo() string {
 }
 
 func (m *BuildingsModel) updateBuildingsCmd() tea.Msg {
-	bm := BuildingsMsg{}
+	log.Debug("Updating buildings")
 	if m.buildings == nil {
+		log.Errorf("missing buildings")
 		return common.ErrorMsg(common.ErrMissingRepo)
 	}
-	bm.Content = "fake content"
-	bm.Path = "fake/path"
-	return bm
+	m.isLoading = false
+	return BuildingsMsg(m)
 }
-
-var docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)

@@ -19,6 +19,8 @@ import (
 	"github.com/charmbracelet/soft-serve/pkg/ui/components/tabs"
 )
 
+var docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
+
 type tickMsg time.Time
 
 type state int
@@ -27,9 +29,7 @@ type state int
 type GoBackMsg struct{}
 
 // GameMsg is a message to update the game.
-type GameMsg struct {
-	Game gameInfo
-}
+type GameMsg *Game
 
 // SwitchTabMsg is a message to switch tabs.
 type SwitchTabMsg common.TabComponent
@@ -56,6 +56,7 @@ type Game struct {
 	panes      []common.TabComponent
 	state      state
 	panesReady []bool
+	dump       *log.Logger
 }
 
 // New returns a new Game.
@@ -65,14 +66,15 @@ func newGame(c common.Common, comps ...common.TabComponent) *Game {
 	for _, c := range comps {
 		ts = append(ts, c.TabName())
 	}
-	// c.Logger = c.Logger.WithPrefix("game")
 	tb := tabs.New(c, ts)
 	// Make sure the order matches the order of tab constants above.
 	s := spinner.New(spinner.WithSpinner(spinner.Dot),
 		spinner.WithStyle(c.Styles.Spinner))
 
 	gi := gameInfo{
-		Name: "Game",
+		Name:        "Lord of War",
+		Description: "A game about money and guns",
+		ProjectName: "lord-of-war",
 	}
 	g := &Game{
 		common:     c,
@@ -140,22 +142,26 @@ func (g *Game) FullHelp() [][]key.Binding {
 
 // Init implements tea.View.
 func (g *Game) Init() tea.Cmd {
+	log.Debug("Initializing game")
 	g.state = loadingState
 	g.activeTab = 0
 	return tea.Batch(
 		g.tabs.Init(),
 		g.statusbar.Init(),
+		g.panes[g.activeTab].Init(),
 		g.spinner.Tick,
 	)
 }
 
 func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0)
+	if g.dump != nil {
+		g.dump.Debug("Game Update", "msg", msg)
+	}
 	switch msg := msg.(type) {
 	case GameMsg:
-		g.game = msg.Game
+		log.Debug("Received GameMsg")
 		cmds = append(cmds,
-			g.Init(),
 			g.updateModels(msg),
 		)
 	case tea.WindowSizeMsg:
@@ -181,11 +187,30 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, g.common.KeyMap.Back):
 				cmds = append(cmds, goBackCmd)
+			case key.Matches(msg, g.common.KeyMap.Select):
+				g.dump = log.FromContext(g.common.Context()).WithPrefix("Dump")
+			case key.Matches(msg, g.common.KeyMap.NextPage):
+				cmds = append(cmds, g.debugGameMsg)
 			}
 		}
 	case BuildingsMsg:
-		g.state = readyState
+		log.Debug("Received BuildingsMsg")
 		cmds = append(cmds, g.updateTabComponent(&BuildingsModel{}, msg))
+		if g.state == loadingState && !msg.isLoading {
+			g.state = readyState
+		}
+	case CapitalMsg:
+		log.Debug("Received CapitalMsg")
+		cmds = append(cmds, g.updateTabComponent(&CapitalModel{}, msg))
+		if g.state == loadingState && !msg.isLoading {
+			g.state = readyState
+		}
+	case WeaponsMsg:
+		log.Debug("Received WeaponsMsg")
+		cmds = append(cmds, g.updateTabComponent(&WeaponsModel{}, msg))
+		if g.state == loadingState && !msg.isLoading {
+			g.state = readyState
+		}
 	case spinner.TickMsg:
 		if g.state == loadingState && g.spinner.ID() == msg.ID {
 			s, cmd := g.spinner.Update(msg)
@@ -193,29 +218,14 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-		} else {
-			for i, c := range g.panes {
-				if c.SpinnerID() == msg.ID {
-					m, cmd := c.Update(msg)
-					g.panes[i] = m.(common.TabComponent)
-					if cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					break
-				}
-			}
 		}
-	case common.ErrorMsg:
-		g.state = readyState
-	case SwitchTabMsg:
-		for i, c := range g.panes {
-			if c.TabName() == msg.TabName() {
-				cmds = append(cmds, tabs.SelectTabCmd(i))
-				break
-			}
-		}
+	default:
+		log.Warn("Unhandled message type", "msg", msg)
 	}
 	active := g.panes[g.activeTab]
+	if g.dump != nil {
+		log.Debug("Updating active tab", "tab", active.TabName())
+	}
 	m, cmd := active.Update(msg)
 	g.panes[g.activeTab] = m.(common.TabComponent)
 	if cmd != nil {
@@ -270,12 +280,18 @@ func (g Game) View() string {
 }
 
 func main() {
-	f, err := tea.LogToFile("debug.log", "debug")
+	// Open or create the log file
+	logFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Failed to open log file:", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer logFile.Close()
+
+	// Set up the logger to log debug messages to the file
+	log.SetOutput(logFile)
+	log.SetLevel(log.DebugLevel)
+	log.Debug("Starting up")
 
 	// Properly initialize common.Common
 	ctx := context.Background()
@@ -336,6 +352,11 @@ func goBackCmd() tea.Msg {
 	return GoBackMsg{}
 }
 
+func (g *Game) debugGameMsg() tea.Msg {
+	log.Debug("Debugging GameMsg", "game", g)
+	return GameMsg(g)
+}
+
 func (g *Game) setStatusBarInfo() {
 	active := g.panes[g.activeTab]
 	key := g.game.Name
@@ -347,6 +368,7 @@ func (g *Game) setStatusBarInfo() {
 }
 
 func (g *Game) updateTabComponent(c common.TabComponent, msg tea.Msg) tea.Cmd {
+	log.Debug("Updating tab component", "tab", c.TabName())
 	cmds := make([]tea.Cmd, 0)
 	for i, b := range g.panes {
 		if b.TabName() == c.TabName() {

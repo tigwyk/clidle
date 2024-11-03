@@ -9,8 +9,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/soft-serve/pkg/ui/common"
 )
+
+// BuildingsMsg is a message sent when the readme is loaded.
+type WeaponsMsg *WeaponsModel
 
 // Weapon represents a weapon in the game.
 type Weapon struct {
@@ -31,11 +35,13 @@ func (i WeaponItem) FilterValue() string { return i.Weapon.Name }
 
 // WeaponsModel is the model for the weapons tab.
 type WeaponsModel struct {
-	common   common.Common
-	spinner  spinner.Model
-	list     list.Model
-	progress progress.Model
-	weapons  []Weapon
+	game      *Game
+	common    common.Common
+	spinner   spinner.Model
+	list      list.Model
+	progress  progress.Model
+	weapons   []Weapon
+	isLoading bool
 }
 
 // Path implements common.TabComponent.
@@ -50,7 +56,7 @@ func (m *WeaponsModel) TabName() string {
 
 // Tick returns a command that ticks the spinner.
 func (m *WeaponsModel) Tick() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, m.updateWeaponsCmd)
 }
 
 // SetSize implements common.Component.
@@ -78,24 +84,25 @@ func (m *WeaponsModel) FullHelp() [][]key.Binding {
 
 // Init initializes the weapons tab.
 func (m *WeaponsModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.Tick(),
-	)
+	return m.Tick()
 }
 
 // Update updates the weapons tab.
 func (m *WeaponsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	if m.game != nil && m.game.dump != nil {
+		m.game.dump.Debug("Weapons Update", "msg", msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
 		case "enter":
 			selectedItem := m.list.SelectedItem().(WeaponItem)
 			selectedItem.Weapon.Value++
 			m.updateWeapon(selectedItem.Weapon)
 		}
+	case WeaponsMsg:
+		m.isLoading = false
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -151,13 +158,15 @@ func NewWeaponsModel(c common.Common) *WeaponsModel {
 		items[i] = WeaponItem{Weapon: w}
 	}
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	log.Debug("NewWeaponsModel", "items", items)
 	l.Title = "Weapons"
 	return &WeaponsModel{
-		common:   c,
-		spinner:  spinner.New(),
-		list:     l,
-		progress: progress.New(progress.WithDefaultGradient()),
-		weapons:  weapons,
+		common:    c,
+		spinner:   spinner.New(),
+		list:      l,
+		progress:  progress.New(progress.WithDefaultGradient()),
+		weapons:   weapons,
+		isLoading: true,
 	}
 }
 
@@ -174,4 +183,14 @@ func (m *WeaponsModel) StatusBarValue() string {
 // StatusBarInfo implements statusbar.StatusBar.
 func (m *WeaponsModel) StatusBarInfo() string {
 	return fmt.Sprintf("☰ %d%%", m.list.Index())
+}
+
+func (m *WeaponsModel) updateWeaponsCmd() tea.Msg {
+	log.Debug("Updating weapons")
+	if m.weapons == nil {
+		log.Errorf("missing weapons")
+		return common.ErrorMsg(common.ErrMissingRepo)
+	}
+	m.isLoading = false
+	return WeaponsMsg(m)
 }
