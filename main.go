@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -27,6 +28,8 @@ type GoBackMsg struct{}
 
 // GameMsg is a message to update the game.
 type GameMsg *Game
+
+type tickMsg time.Time
 
 // SwitchTabMsg is a message to switch tabs.
 type SwitchTabMsg common.TabComponent
@@ -54,6 +57,7 @@ type Game struct {
 	state      state
 	panesReady []bool
 	dump       *log.Logger
+	money      int
 }
 
 // New returns a new Game.
@@ -120,6 +124,12 @@ func (g *Game) commonHelp() []key.Binding {
 	b = append(b, back)
 	b = append(b, tab)
 	return b
+}
+
+func (g *Game) Tick() tea.Cmd {
+	var cmds []tea.Cmd
+	cmds = append(cmds, tickCmd())
+	return tea.Batch(cmds...)
 }
 
 // ShortHelp implements help.KeyMap.
@@ -216,6 +226,10 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+	case tickMsg:
+		log.Info("Received tickMsg", "msg", msg)
+		cmds = append(cmds, g.Tick())
+		cmds = append(cmds, g.updateModels(msg))
 	default:
 		log.Warn("Unhandled message type", "msg", msg)
 	}
@@ -259,6 +273,7 @@ func (g Game) View() string {
 	switch g.state {
 	case loadingState:
 		main = fmt.Sprintf("%s loading…", g.spinner.View())
+		statusbar = g.statusbar.View()
 	case readyState:
 		main = g.panes[g.activeTab].View()
 		statusbar = g.statusbar.View()
@@ -296,6 +311,7 @@ func main() {
 	c := common.NewCommon(ctx, renderer, 0, 0)
 
 	comps := []common.TabComponent{
+		NewOverviewModel(c),
 		NewBuildingsModel(c),
 		NewCapitalModel(c),
 		NewWeaponsModel(c),
@@ -308,9 +324,7 @@ func main() {
 }
 
 func (g *Game) headerView() string {
-	if g.game.ProjectName == "" {
-		return ""
-	}
+	log.Debug("Rendering header", "game", g.game)
 	truncate := g.common.Renderer.NewStyle().MaxWidth(g.common.Width)
 	header := g.game.ProjectName
 	if header == "" {
@@ -403,4 +417,10 @@ func renderLoading(c common.Common, s spinner.Model) string {
 	return c.Styles.SpinnerContainer.
 		Height(c.Height).
 		Render(msg)
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second*2, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }

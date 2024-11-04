@@ -56,7 +56,28 @@ func (m *CapitalModel) TabName() string {
 
 // Tick returns a command that ticks the spinner.
 func (m *CapitalModel) Tick() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.updateCapitalsCmd)
+	var cmds []tea.Cmd
+	if m.progress.Percent() == 1.0 {
+		log.Debug("Capital progress bar hit 100%")
+		m.progress.SetPercent(0)
+	}
+
+	// Note that you can also use progress.Model.SetPercent to set the
+	// percentage value explicitly, too.
+	cmd := tickCapital(m)
+
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, m.spinner.Tick)
+	cmds = append(cmds, m.updateCapitalsCmd)
+	// cmds = append(cmds, tickCmd())
+	return tea.Batch(cmds...)
+}
+
+func tickCapital(m *CapitalModel) tea.Cmd {
+	cmd := m.progress.IncrPercent(0.25)
+	return cmd
 }
 
 // SetSize implements common.Component.
@@ -108,6 +129,13 @@ func (m *CapitalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
+	case tickMsg:
+		return m, m.Tick()
+	// FrameMsg is sent when the progress bar wants to animate itself
+	case progress.FrameMsg:
+		progressModel, cmd := m.progress.Update(msg)
+		m.progress = progressModel.(progress.Model)
+		return m, cmd
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)

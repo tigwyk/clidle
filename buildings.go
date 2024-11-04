@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -23,7 +22,6 @@ const (
 
 // BuildingsMsg is sent when the tab is ready
 type BuildingsMsg *BuildingsModel
-type buildingsTickMsg time.Time
 
 // Building represents a building in the game.
 type Building struct {
@@ -56,7 +54,7 @@ type BuildingsModel struct {
 
 // Path implements common.TabComponent.
 func (m *BuildingsModel) Path() string {
-	return ""
+	return "/buildings"
 }
 
 // TabName returns the name of the tab.
@@ -82,7 +80,7 @@ func (m *BuildingsModel) Tick() tea.Cmd {
 	//return tea.Batch(m.spinner.Tick, m.updateBuildingsCmd, cmd, buildingsTickCmd)
 	cmds = append(cmds, m.spinner.Tick)
 	cmds = append(cmds, m.updateBuildingsCmd)
-	cmds = append(cmds, buildingsTickCmd())
+	// cmds = append(cmds, tickCmd())
 	return tea.Batch(cmds...)
 }
 
@@ -147,7 +145,7 @@ func (m *BuildingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-	case buildingsTickMsg:
+	case tickMsg:
 		return m, m.Tick()
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
@@ -248,10 +246,4 @@ func (m *BuildingsModel) updateBuildingsCmd() tea.Msg {
 	}
 	m.isLoading = false
 	return BuildingsMsg(m)
-}
-
-func buildingsTickCmd() tea.Cmd {
-	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
-		return buildingsTickMsg(t)
-	})
 }
