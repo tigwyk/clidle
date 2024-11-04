@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -20,8 +19,6 @@ import (
 )
 
 var docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
-
-type tickMsg time.Time
 
 type state int
 
@@ -187,10 +184,10 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, g.common.KeyMap.Back):
 				cmds = append(cmds, goBackCmd)
-			case key.Matches(msg, g.common.KeyMap.Select):
-				g.dump = log.FromContext(g.common.Context()).WithPrefix("Dump")
-			case key.Matches(msg, g.common.KeyMap.NextPage):
-				cmds = append(cmds, g.debugGameMsg)
+				// case key.Matches(msg, g.common.KeyMap.Select):
+				// 	g.dump = log.FromContext(g.common.Context()).WithPrefix("Dump")
+				// case key.Matches(msg, g.common.KeyMap.NextPage):
+				// 	cmds = append(cmds, g.debugGameMsg)
 			}
 		}
 	case BuildingsMsg:

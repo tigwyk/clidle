@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -15,8 +16,14 @@ import (
 	"github.com/charmbracelet/soft-serve/pkg/ui/common"
 )
 
+const (
+	padding  = 2
+	maxWidth = 80
+)
+
 // BuildingsMsg is sent when the tab is ready
 type BuildingsMsg *BuildingsModel
+type buildingsTickMsg time.Time
 
 // Building represents a building in the game.
 type Building struct {
@@ -59,7 +66,29 @@ func (m *BuildingsModel) TabName() string {
 
 // Tick returns a command that ticks the spinner.
 func (m *BuildingsModel) Tick() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.updateBuildingsCmd)
+	var cmds []tea.Cmd
+	if m.progress.Percent() == 1.0 {
+		log.Debug("Buildings progress bar hit 100%")
+		m.progress.SetPercent(0)
+	}
+
+	// Note that you can also use progress.Model.SetPercent to set the
+	// percentage value explicitly, too.
+	cmd := tickBuildings(m)
+
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	//return tea.Batch(m.spinner.Tick, m.updateBuildingsCmd, cmd, buildingsTickCmd)
+	cmds = append(cmds, m.spinner.Tick)
+	cmds = append(cmds, m.updateBuildingsCmd)
+	cmds = append(cmds, buildingsTickCmd())
+	return tea.Batch(cmds...)
+}
+
+func tickBuildings(m *BuildingsModel) tea.Cmd {
+	cmd := m.progress.IncrPercent(0.25)
+	return cmd
 }
 
 // SetSize implements common.Component.
@@ -118,9 +147,20 @@ func (m *BuildingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+	case buildingsTickMsg:
+		return m, m.Tick()
+	case progress.FrameMsg:
+		progressModel, cmd := m.progress.Update(msg)
+		m.progress = progressModel.(progress.Model)
+		return m, cmd
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
+		m.progress.Width = msg.Width - padding*2 - 4
+		if m.progress.Width > maxWidth {
+			m.progress.Width = maxWidth
+		}
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
@@ -208,4 +248,10 @@ func (m *BuildingsModel) updateBuildingsCmd() tea.Msg {
 	}
 	m.isLoading = false
 	return BuildingsMsg(m)
+}
+
+func buildingsTickCmd() tea.Cmd {
+	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+		return buildingsTickMsg(t)
+	})
 }
