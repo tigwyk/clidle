@@ -89,7 +89,8 @@ func (m *OverviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the OverviewModel.
 func (m *OverviewModel) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
-		fmt.Sprintf("Money: %d", m.game.money),
+		// fmt.Sprintf("Money: %d", m.game.money),
+		fmt.Sprintf("Money: %d", 100),
 		m.progress.View(),
 	)
 }
